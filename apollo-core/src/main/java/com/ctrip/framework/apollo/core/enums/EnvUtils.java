@@ -6,9 +6,9 @@ public final class EnvUtils {
   
   public static Env transformEnv(String envName) {
     if (StringUtils.isBlank(envName)) {
-      return null;
+      return Env.UNKNOWN;
     }
-    switch (envName.toUpperCase()) {
+    switch (envName.trim().toUpperCase()) {
       case "LPT":
         return Env.LPT;
       case "FAT":
@@ -23,8 +23,10 @@ public final class EnvUtils {
         return Env.DEV;
       case "LOCAL":
         return Env.LOCAL;
+      case "TOOLS":
+        return Env.TOOLS;
       default:
-        return null;
+        return Env.UNKNOWN;
     }
   }
 }

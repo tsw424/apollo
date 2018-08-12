@@ -10,33 +10,34 @@
     <link rel="stylesheet" type="text/css" media='all' href="vendor/font-awesome.min.css">
 
     <link rel="stylesheet" type="text/css" href="styles/common-style.css">
-    <title>apollo</title>
+    <title>Apollo配置中心</title>
 </head>
 
 <body>
 
 <apollonav></apollonav>
 
-<div id="app-list" ng-controller="IndexController">
+<div id="app-list" class="hidden" ng-controller="IndexController">
 
     <section class="media create-app-list">
         <aside class="media-left text-center">
             <h5>我的项目</h5>
         </aside>
         <aside class="media-body">
-            <div class="col-md-2 text-center" ng-click="goToCreateAppPage()">
+            <div class="app-panel col-md-2 text-center" ng-click="goToCreateAppPage()">
                 <div href="#" class="thumbnail create-btn hover cursor-pointer">
                     <img src="img/plus-white.png"/>
                     <h5>创建项目</h5>
                 </div>
             </div>
-            <div class="col-md-2 text-center" ng-repeat="app in createdApps" ng-click="goToAppHomePage(app.appId)">
+            <div class="app-panel col-md-2 text-center" ng-repeat="app in createdApps"
+                 ng-click="goToAppHomePage(app.appId)">
                 <div href="#" class="thumbnail hover cursor-pointer">
                     <h4 ng-bind="app.appId"></h4>
                     <h5 ng-bind="app.name"></h5>
                 </div>
             </div>
-            <div class="col-md-2 text-center" ng-show="hasMoreCreatedApps"
+            <div class="app-panel col-md-2 text-center" ng-show="hasMoreCreatedApps"
                  ng-click="getUserCreatedApps()">
                 <div href="#" class="thumbnail hover cursor-pointer">
                     <img class="more-img" src="img/more.png"/>
@@ -80,7 +81,7 @@
                 </div>
             </div>
             <div class="no-favorites text-center" ng-show="!favorites || favorites.length == 0">
-                <h4>您还没有收藏过任何项目,在项目主页可以收藏项目哟~</h4>
+                <h4>您还没有收藏过任何项目，在项目主页可以收藏项目哟~</h4>
             </div>
 
         </aside>
@@ -125,7 +126,9 @@
 <script type="application/javascript" src="scripts/services/AppService.js"></script>
 <script type="application/javascript" src="scripts/services/EnvService.js"></script>
 <script type="application/javascript" src="scripts/services/UserService.js"></script>
+<script type="application/javascript" src="scripts/services/CommonService.js"></script>
 <script type="application/javascript" src="scripts/services/FavoriteService.js"></script>
+<script type="application/javascript" src="scripts/services/PermissionService.js"></script>
 <script type="application/javascript" src="scripts/AppUtils.js"></script>
 <script type="application/javascript" src="scripts/directive/directive.js"></script>
 

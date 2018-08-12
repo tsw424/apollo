@@ -1,14 +1,22 @@
 application_module.controller("ConfigBaseInfoController",
-                              ['$rootScope', '$scope', '$location', 'toastr', 'UserService', 'AppService',
+                              ['$rootScope', '$scope', '$window', '$location', 'toastr', 'EventManager', 'UserService',
+                               'AppService',
                                'FavoriteService',
                                'PermissionService',
                                'AppUtil', ConfigBaseInfoController]);
 
-function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserService, AppService, FavoriteService,
+function ConfigBaseInfoController($rootScope, $scope, $window, $location, toastr, EventManager, UserService, AppService,
+                                  FavoriteService,
                                   PermissionService,
                                   AppUtil) {
 
-    var appId = AppUtil.parseParams($location.$$url).appid;
+    var urlParams = AppUtil.parseParams($location.$$url);
+    var appId = urlParams.appid;
+
+    if (!appId) {
+        $window.location.href = '/index.html';
+        return;
+    }
 
     initPage();
 
@@ -17,17 +25,26 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
 
         //load session storage to recovery scene
         var scene = JSON.parse(sessionStorage.getItem(appId));
+
         $rootScope.pageContext = {
             appId: appId,
-            env: scene ? scene.env : '',
-            clusterName: scene ? scene.cluster : 'default'
+            env: urlParams.env ? urlParams.env : (scene ? scene.env : ''),
+            clusterName: urlParams.cluster ? urlParams.cluster : (scene ? scene.cluster : 'default')
         };
+
+        //storage page context to session storage
+        sessionStorage.setItem(
+            $rootScope.pageContext.appId,
+            JSON.stringify({
+                               env: $rootScope.pageContext.env,
+                               cluster: $rootScope.pageContext.clusterName
+                           }));
 
         UserService.load_user().then(function (result) {
             $rootScope.pageContext.userId = result.userId;
             loadAppInfo();
             handleFavorite();
-        },function (result) {
+        }, function (result) {
             toastr.error(AppUtil.errorMsg(result), "获取用户登录信息失败");
         });
 
@@ -35,6 +52,7 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
     }
 
     function loadAppInfo() {
+
         $scope.notFoundApp = true;
         AppService.load($rootScope.pageContext.appId).then(function (result) {
             $scope.notFoundApp = false;
@@ -44,59 +62,62 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
 
             loadNavTree();
             recordVisitApp();
+            findMissEnvs();
 
             $(".J_appFound").removeClass("hidden");
         }, function (result) {
             $(".J_appNotFound").removeClass("hidden");
         });
+    }
 
-        ////// 补缺失的环境 //////
+    $scope.createAppInMissEnv = function () {
+        var count = 0;
+        $scope.missEnvs.forEach(function (env) {
+            AppService.create_remote(env, $scope.appBaseInfo).then(function (result) {
+                toastr.success(env, '创建成功');
+                count++;
+                if (count == $scope.missEnvs.length) {
+                    location.reload(true);
+                }
+            }, function (result) {
+                toastr.error(AppUtil.errorMsg(result), '创建失败:' + env);
+                count++;
+                if (count == $scope.missEnvs.length) {
+                    location.reload(true);
+                }
+            });
+        });
+    };
+
+    function findMissEnvs() {
         $scope.missEnvs = [];
         AppService.find_miss_envs($rootScope.pageContext.appId).then(function (result) {
             $scope.missEnvs = AppUtil.collectData(result);
-        }, function (result) {
-
         });
 
-        $scope.createAppInMissEnv = function () {
-            var count = 0;
-            $scope.missEnvs.forEach(function (env) {
-                AppService.create_remote(env, $scope.appBaseInfo).then(function (result) {
-                    toastr.success(env, '创建成功');
-                    count++;
-                    if (count == $scope.missEnvs.length) {
-                        location.reload(true);
-                    }
-                }, function (result) {
-                    toastr.error(AppUtil.errorMsg(result), '创建失败:' + env);
-                    count++;
-                    if (count == $scope.missEnvs.length) {
-                        location.reload(true);
-                    }
-                });
-            });
-        };
     }
-
     function recordVisitApp() {
         //save user recent visited apps
         var VISITED_APPS_STORAGE_KEY = "VisitedAppsV2";
         var visitedAppsObject = JSON.parse(localStorage.getItem(VISITED_APPS_STORAGE_KEY));
         var hasSaved = false;
-        if (visitedAppsObject) {
-            var visitedApps = visitedAppsObject[$rootScope.pageContext.userId];
-            if (visitedApps && visitedApps.length > 0) {
-                visitedApps.forEach(function (app) {
-                    if (app == appId) {
-                        hasSaved = true;
-                        return;
-                    }
-                });
-            }
 
-        } else {
+        if (!visitedAppsObject) {
             visitedAppsObject = {};
+        }
+
+        if (!visitedAppsObject[$rootScope.pageContext.userId]) {
             visitedAppsObject[$rootScope.pageContext.userId] = [];
+        }
+
+        var visitedApps = visitedAppsObject[$rootScope.pageContext.userId];
+        if (visitedApps && visitedApps.length > 0) {
+            visitedApps.forEach(function (app) {
+                if (app == appId) {
+                    hasSaved = true;
+                    return;
+                }
+            });
         }
 
         var currentUserVisitedApps = visitedAppsObject[$rootScope.pageContext.userId];
@@ -114,6 +135,7 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
     }
 
     function loadNavTree() {
+
         AppService.load_nav_tree($rootScope.pageContext.appId).then(function (result) {
             var navTree = [];
             var nodes = AppUtil.collectData(result);
@@ -126,7 +148,8 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
             if (!$rootScope.pageContext.env) {
                 $rootScope.pageContext.env = nodes[0].env;
             }
-            $rootScope.refreshNamespaces();
+
+            EventManager.emit(EventManager.EventType.REFRESH_NAMESPACE);
 
             nodes.forEach(function (env) {
                 if (!env.clusters || env.clusters.length == 0) {
@@ -134,6 +157,7 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
                 }
                 var node = {};
                 node.text = env.env;
+
                 var clusterNodes = [];
 
                 //如果env下面只有一个default集群则不显示集群列表
@@ -144,6 +168,7 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
                         node.state.selected = true;
                     }
                     node.selectable = true;
+
                 } else {
                     node.selectable = false;
                     //cluster list
@@ -163,6 +188,7 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
                         clusterNode.tags = ['集群'];
                         clusterNode.parentNode = parentNode;
                         clusterNodes.push(clusterNode);
+
                     });
                 }
                 node.nodes = clusterNodes;
@@ -197,7 +223,13 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
                                                                    cluster: $rootScope.pageContext.clusterName
                                                                }));
 
-                                            $rootScope.refreshNamespaces();
+                                            $window.location.href = "/config.html#/appid="
+                                                                    + $rootScope.pageContext.appId
+                                                                    + "&env=" + $rootScope.pageContext.env
+                                                                    + "&cluster=" + $rootScope.pageContext.clusterName;
+
+                                            EventManager.emit(EventManager.EventType.REFRESH_NAMESPACE);
+                                            $rootScope.showSideBar = false;
                                         }
                                     });
 
@@ -223,6 +255,7 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
         }, function (result) {
             toastr.error(AppUtil.errorMsg(result), "系统出错,请重试或联系系统负责人");
         });
+
     }
 
     function handleFavorite() {
@@ -286,6 +319,30 @@ function ConfigBaseInfoController($rootScope, $scope, $location, toastr, UserSer
             $("#masterNoPermissionDialog").modal('show');
         };
     }
+
+    var VIEW_MODE_SWITCH_WIDTH = 1156;
+    if (window.innerWidth <= VIEW_MODE_SWITCH_WIDTH) {
+        $rootScope.viewMode = 2;
+        $rootScope.showSideBar = false;
+    } else {
+        $rootScope.viewMode = 1;
+    }
+
+    $rootScope.adaptScreenSize = function () {
+        if (window.innerWidth <= VIEW_MODE_SWITCH_WIDTH) {
+            $rootScope.viewMode = 2;
+        } else {
+            $rootScope.viewMode = 1;
+            $rootScope.showSideBar = false;
+        }
+
+    };
+
+    $(window).resize(function () {
+        $scope.$apply(function () {
+            $rootScope.adaptScreenSize();
+        });
+    });
 
 }
 

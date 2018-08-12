@@ -1,11 +1,11 @@
 package com.ctrip.framework.apollo.common.datasource;
 
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
-
 import com.ctrip.framework.apollo.core.enums.Env;
 import com.ctrip.framework.apollo.core.enums.EnvUtils;
 import com.ctrip.framework.foundation.Foundation;
+
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Component;
 
 @Component
 public class TitanSettings {
@@ -30,9 +30,6 @@ public class TitanSettings {
 
   public String getTitanUrl() {
     Env env = EnvUtils.transformEnv(Foundation.server().getEnvType());
-    if (env == null) {
-      return "";
-    }
     switch (env) {
       case FAT:
       case FWS:
@@ -49,9 +46,6 @@ public class TitanSettings {
 
   public String getTitanDbname() {
     Env env = EnvUtils.transformEnv(Foundation.server().getEnvType());
-    if (env == null) {
-      return "";
-    }
     switch (env) {
       case FAT:
       case FWS:

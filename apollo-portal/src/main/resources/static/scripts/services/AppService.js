@@ -11,7 +11,7 @@ appService.service('AppService', ['$resource', '$q', function ($resource, $q) {
             url: '/apps/by-owner'
         },
         load_navtree: {
-            methode: 'GET',
+            method: 'GET',
             isArray: false,
             url: '/apps/:appId/navtree'
         },
@@ -23,6 +23,10 @@ appService.service('AppService', ['$resource', '$q', function ($resource, $q) {
             method: 'POST',
             url: '/apps'
         },
+        update_app: {
+            method: 'PUT',
+            url: '/apps/:appId'
+        },
         create_app_remote: {
             method: 'POST',
             url: '/apps/envs/:env'
@@ -30,6 +34,10 @@ appService.service('AppService', ['$resource', '$q', function ($resource, $q) {
         find_miss_envs: {
             method: 'GET',
             url: '/apps/:appId/miss_envs'
+        },
+        delete_app: {
+            method: 'DELETE',
+            isArray: false
         }
     });
     return {
@@ -78,6 +86,17 @@ appService.service('AppService', ['$resource', '$q', function ($resource, $q) {
             });
             return d.promise;
         },
+        update: function (app) {
+            var d = $q.defer();
+            app_resource.update_app({
+                                        appId: app.appId
+                                    }, app, function (result) {
+                d.resolve(result);
+            }, function (result) {
+                d.reject(result);
+            });
+            return d.promise;
+        },
         create_remote: function (env, app) {
             var d = $q.defer();
             app_resource.create_app_remote({env: env}, app, function (result) {
@@ -103,6 +122,17 @@ appService.service('AppService', ['$resource', '$q', function ($resource, $q) {
             app_resource.find_miss_envs({
                                             appId: appId
                                         }, function (result) {
+                d.resolve(result);
+            }, function (result) {
+                d.reject(result);
+            });
+            return d.promise;
+        },
+        delete_app: function (appId) {
+            var d = $q.defer();
+            app_resource.delete_app({
+                appId: appId
+            }, function (result) {
                 d.resolve(result);
             }, function (result) {
                 d.reject(result);

@@ -1,27 +1,23 @@
 package com.ctrip.framework.apollo.util;
 
-import com.google.common.base.Strings;
+import java.io.File;
+import java.util.concurrent.TimeUnit;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import com.ctrip.framework.apollo.core.ConfigConsts;
 import com.ctrip.framework.apollo.core.MetaDomainConsts;
 import com.ctrip.framework.apollo.core.enums.Env;
 import com.ctrip.framework.apollo.core.enums.EnvUtils;
-import com.ctrip.framework.apollo.exceptions.ApolloConfigException;
 import com.ctrip.framework.foundation.Foundation;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.unidal.lookup.annotation.Named;
-
-import java.util.concurrent.TimeUnit;
+import com.google.common.base.Strings;
 
 /**
  * @author Jason Song(song_s@ctrip.com)
  */
-@Named(type = ConfigUtil.class)
 public class ConfigUtil {
   private static final Logger logger = LoggerFactory.getLogger(ConfigUtil.class);
-  private static final String TOOLING_CLUSTER = "TOOLING";
   private int refreshInterval = 5;
   private TimeUnit refreshIntervalTimeUnit = TimeUnit.MINUTES;
   private int connectTimeout = 1000; //1 second
@@ -29,6 +25,15 @@ public class ConfigUtil {
   private String cluster;
   private int loadConfigQPS = 2; //2 times per second
   private int longPollQPS = 2; //2 times per second
+  //for on error retry
+  private long onErrorRetryInterval = 1;//1 second
+  private TimeUnit onErrorRetryIntervalTimeUnit = TimeUnit.SECONDS;//1 second
+  //for typed config cache of parser result, e.g. integer, double, long, etc.
+  private long maxConfigCacheSize = 500;//500 cache key
+  private long configCacheExpireTime = 1;//1 minute
+  private TimeUnit configCacheExpireTimeUnit = TimeUnit.MINUTES;//1 minute
+  private long longPollingInitialDelayInMills = 2000;//2 seconds
+  private boolean autoUpdateInjectedSpringProperties = true;
 
   public ConfigUtil() {
     initRefreshInterval();
@@ -36,6 +41,9 @@ public class ConfigUtil {
     initReadTimeout();
     initCluster();
     initQPS();
+    initMaxConfigCacheSize();
+    initLongPollingInitialDelayInMills();
+    initAutoUpdateInjectedSpringProperties();
   }
 
   /**
@@ -47,7 +55,8 @@ public class ConfigUtil {
     String appId = Foundation.app().getAppId();
     if (Strings.isNullOrEmpty(appId)) {
       appId = ConfigConsts.NO_APPID_PLACEHOLDER;
-      logger.warn("app.id is not set, apollo will only load public namespace configurations!");
+      logger.warn("app.id is not set, please make sure it is set in classpath:/META-INF/app.properties, now apollo " +
+          "will only load public namespace configurations!");
     }
     return appId;
   }
@@ -65,11 +74,6 @@ public class ConfigUtil {
     //Load data center from system property
     cluster = System.getProperty(ConfigConsts.APOLLO_CLUSTER_KEY);
 
-    //Use TOOLING cluster if tooling=true in server.properties
-    if (Strings.isNullOrEmpty(cluster) && isToolingZone()) {
-      cluster = TOOLING_CLUSTER;
-    }
-
     //Use data center as cluster
     if (Strings.isNullOrEmpty(cluster)) {
       cluster = getDataCenter();
@@ -79,11 +83,6 @@ public class ConfigUtil {
     if (Strings.isNullOrEmpty(cluster)) {
       cluster = ConfigConsts.CLUSTER_NAME_DEFAULT;
     }
-  }
-
-  private boolean isToolingZone() {
-    //do not use the new isTooling method since it might not be available in the client side
-    return "true".equalsIgnoreCase(Foundation.server().getProperty("tooling", "false").trim());
   }
 
   /**
@@ -98,19 +97,10 @@ public class ConfigUtil {
   /**
    * Get the current environment.
    *
-   * @return the env
-   * @throws ApolloConfigException if env is set
+   * @return the env, UNKNOWN if env is not set or invalid
    */
   public Env getApolloEnv() {
-    Env env = EnvUtils.transformEnv(Foundation.server().getEnvType());
-    if (env == null) {
-      String path = isOSWindows() ? "C:\\opt\\settings\\server.properties" :
-          "/opt/settings/server.properties";
-      String message = String.format("env is not set, please make sure it is set in %s!", path);
-      logger.error(message);
-      throw new ApolloConfigException(message);
-    }
-    return env;
+    return EnvUtils.transformEnv(Foundation.server().getEnvType());
   }
 
   public String getLocalIp() {
@@ -198,15 +188,43 @@ public class ConfigUtil {
     return longPollQPS;
   }
 
+  public long getOnErrorRetryInterval() {
+    return onErrorRetryInterval;
+  }
+
+  public TimeUnit getOnErrorRetryIntervalTimeUnit() {
+    return onErrorRetryIntervalTimeUnit;
+  }
+
   public String getDefaultLocalCacheDir() {
-    String cacheRoot = isOSWindows() ? "C:\\opt\\data\\%s" : "/opt/data/%s";
+    String cacheRoot = getCustomizedCacheRoot();
+
+    if (!Strings.isNullOrEmpty(cacheRoot)) {
+      return cacheRoot + File.separator + getAppId();
+    }
+
+    cacheRoot = isOSWindows() ? "C:\\opt\\data\\%s" : "/opt/data/%s";
     return String.format(cacheRoot, getAppId());
+  }
+
+  private String getCustomizedCacheRoot() {
+    // 1. Get from System Property
+    String cacheRoot = System.getProperty("apollo.cacheDir");
+    if (Strings.isNullOrEmpty(cacheRoot)) {
+      // 2. Get from OS environment variable
+      cacheRoot = System.getenv("APOLLO_CACHEDIR");
+    }
+    if (Strings.isNullOrEmpty(cacheRoot)) {
+      // 3. Get from server.properties
+      cacheRoot = Foundation.server().getProperty("apollo.cacheDir", null);
+    }
+
+    return cacheRoot;
   }
 
   public boolean isInLocalMode() {
     try {
-      Env env = getApolloEnv();
-      return env == Env.LOCAL;
+      return Env.LOCAL == getApolloEnv();
     } catch (Throwable ex) {
       //ignore
     }
@@ -219,5 +237,59 @@ public class ConfigUtil {
       return false;
     }
     return osName.startsWith("Windows");
+  }
+
+  private void initMaxConfigCacheSize() {
+    String customizedConfigCacheSize = System.getProperty("apollo.configCacheSize");
+    if (!Strings.isNullOrEmpty(customizedConfigCacheSize)) {
+      try {
+        maxConfigCacheSize = Long.valueOf(customizedConfigCacheSize);
+      } catch (Throwable ex) {
+        logger.error("Config for apollo.configCacheSize is invalid: {}", customizedConfigCacheSize);
+      }
+    }
+  }
+
+  public long getMaxConfigCacheSize() {
+    return maxConfigCacheSize;
+  }
+
+  public long getConfigCacheExpireTime() {
+    return configCacheExpireTime;
+  }
+
+  public TimeUnit getConfigCacheExpireTimeUnit() {
+    return configCacheExpireTimeUnit;
+  }
+
+  private void initLongPollingInitialDelayInMills() {
+    String customizedLongPollingInitialDelay = System.getProperty("apollo.longPollingInitialDelayInMills");
+    if (!Strings.isNullOrEmpty(customizedLongPollingInitialDelay)) {
+      try {
+        longPollingInitialDelayInMills = Long.valueOf(customizedLongPollingInitialDelay);
+      } catch (Throwable ex) {
+        logger.error("Config for apollo.longPollingInitialDelayInMills is invalid: {}", customizedLongPollingInitialDelay);
+      }
+    }
+  }
+
+  public long getLongPollingInitialDelayInMills() {
+    return longPollingInitialDelayInMills;
+  }
+
+  private void initAutoUpdateInjectedSpringProperties() {
+    // 1. Get from System Property
+    String enableAutoUpdate = System.getProperty("apollo.autoUpdateInjectedSpringProperties");
+    if (Strings.isNullOrEmpty(enableAutoUpdate)) {
+      // 2. Get from app.properties
+      enableAutoUpdate = Foundation.app().getProperty("apollo.autoUpdateInjectedSpringProperties", null);
+    }
+    if (!Strings.isNullOrEmpty(enableAutoUpdate)) {
+      autoUpdateInjectedSpringProperties = Boolean.parseBoolean(enableAutoUpdate.trim());
+    }
+  }
+
+  public boolean isAutoUpdateInjectedSpringPropertiesEnabled() {
+    return autoUpdateInjectedSpringProperties;
   }
 }
